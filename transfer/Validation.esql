@@ -1,0 +1,84 @@
+BROKER SCHEMA transfer
+PATH common; -- Giữ nguyên dòng này để import, nhưng ta sẽ gọi tường minh bên dưới cho chắc chắn
+
+CREATE COMPUTE MODULE Validation
+    CREATE FUNCTION Main() RETURNS BOOLEAN
+    BEGIN
+        SET OutputRoot = InputRoot;
+        DECLARE refIn REFERENCE TO InputRoot.JSON.Data;
+        
+        DECLARE fromAcc CHARACTER refIn.fromAccount;
+        DECLARE toAcc   CHARACTER refIn.toAccount;
+        DECLARE amount  DECIMAL refIn.amount;
+
+        -- =========================================================
+        -- 1. KIỂM TRA TÀI KHOẢN NGUỒN
+        -- =========================================================
+        DECLARE dbStatusFrom CHARACTER;
+        DECLARE dbBalanceFrom DECIMAL;
+        
+        SET Environment.Temp.AccSender[] = 
+            SELECT T.STATUS, T.BALANCE 
+            FROM Database.CBS.CBS_USER.ACCOUNTS AS T
+            WHERE T.ACC_NO = fromAcc;
+
+        -- Check tồn tại người gửi
+        IF NOT EXISTS(Environment.Temp.AccSender[]) THEN
+            -- SỬA: Thêm common. trước hằng số
+            CALL ThrowError(common.C_ERR_ACC_NOT_FOUND, 'Tài khoản nguồn không tồn tại.'); 
+            RETURN FALSE;
+        END IF;
+
+        -- Check trạng thái người gửi
+        -- SỬA: Thêm common.
+        IF Environment.Temp.AccSender[1].STATUS <> common.C_ACC_ACTIVE THEN 
+            CALL ThrowError(common.C_ERR_ACC_LOCKED, 'Tài khoản nguồn đang bị khóa.');
+            RETURN FALSE;
+        END IF;
+
+        -- Check số dư
+        IF Environment.Temp.AccSender[1].BALANCE < amount THEN
+            -- SỬA: Thêm common.
+            CALL ThrowError(common.C_ERR_INSUFFICIENT_FND, 'Số dư không đủ.');
+            RETURN FALSE;
+        END IF;
+
+        -- =========================================================
+        -- 2. KIỂM TRA TÀI KHOẢN ĐÍCH
+        -- =========================================================
+        DECLARE dbStatusTo CHARACTER;
+        SET dbStatusTo = THE(SELECT ITEM T.STATUS 
+                             FROM Database.CBS.CBS_USER.ACCOUNTS AS T
+                             WHERE T.ACC_NO = toAcc);
+
+        -- Check tồn tại người nhận
+        IF dbStatusTo IS NULL THEN
+            -- SỬA: Thêm common.
+            CALL ThrowError(common.C_ERR_ACC_NOT_FOUND, 'Tài khoản thụ hưởng không tồn tại.');
+            RETURN FALSE;
+        END IF;
+
+        -- Check trạng thái người nhận
+        -- SỬA: Thêm common.
+        IF dbStatusTo <> common.C_ACC_ACTIVE THEN
+            CALL ThrowError(common.C_ERR_ACC_LOCKED, 'Tài khoản thụ hưởng đang bị khóa.');
+            RETURN FALSE;
+        END IF;
+
+        -- Nếu cả 2 đều OK -> Đi tiếp
+        -- SỬA: Thêm common.
+        PROPAGATE TO TERMINAL common.C_TERM_OUT;
+        RETURN FALSE;
+    END;
+
+    -- Procedure con để throw lỗi
+    CREATE PROCEDURE ThrowError(IN errCode CHARACTER, IN errMsg CHARACTER)
+    BEGIN
+        -- SỬA: Thêm common.
+        SET Environment.Variables.ErrorType = common.C_ERR_TYPE_BIZ;
+        SET Environment.Variables.ErrorCode = errCode;
+        SET Environment.Variables.ErrorMessage = errMsg;
+        -- SỬA: Thêm common.
+        PROPAGATE TO TERMINAL common.C_TERM_OUT_ERR;
+    END;
+END MODULE;

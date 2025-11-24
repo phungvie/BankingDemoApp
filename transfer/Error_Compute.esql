@@ -1,0 +1,64 @@
+BROKER SCHEMA transfer
+CREATE COMPUTE MODULE Error_Compute
+    CREATE FUNCTION Main() RETURNS BOOLEAN
+    BEGIN
+        -- Tạo cấu trúc JSON Output
+        CREATE FIELD OutputRoot.JSON.Data;
+        
+        -- ======================================================
+        -- TRƯỜNG HỢP 1: Lỗi nghiệp vụ (Business Error)
+        -- (Được set từ node AML hoặc Validation vào Environment)
+        -- ======================================================
+        IF Environment.Variables.ErrorCode IS NOT NULL THEN
+            SET OutputRoot.JSON.Data.status = 'FAILED';
+            SET OutputRoot.JSON.Data.errorCode = Environment.Variables.ErrorCode;
+            SET OutputRoot.JSON.Data.message = Environment.Variables.ErrorMessage;
+            
+            -- Set HTTP Status 400 (Bad Request)
+            SET OutputRoot.HTTPReplyHeader."X-Original-HTTP-Status-Code" = 400;
+            
+        -- ======================================================
+        -- TRƯỜNG HỢP 2: Lỗi hệ thống (System Error / Exception)
+        -- (Được bắt bởi TryCatch hoặc Input Catch)
+        -- ======================================================
+        ELSE
+            -- Lấy nội dung lỗi thực sự từ ExceptionList
+            DECLARE errorText CHARACTER;
+            CALL GetLastExceptionDetail(InputExceptionList, errorText);
+            
+            SET OutputRoot.JSON.Data.status = 'ERROR';
+            SET OutputRoot.JSON.Data.errorCode = 'SYSTEM_ERROR';
+            SET OutputRoot.JSON.Data.message = 'Lỗi hệ thống: ' || errorText;
+            
+            -- Set HTTP Status 500 (Internal Server Error)
+            SET OutputRoot.HTTPReplyHeader."X-Original-HTTP-Status-Code" = 500;
+        END IF;
+
+        RETURN TRUE;
+    END;
+
+    -- Hàm hỗ trợ: Đệ quy để lấy thông báo lỗi sâu nhất (thường là lỗi SQL)
+    CREATE PROCEDURE GetLastExceptionDetail(IN InputTree REFERENCE, OUT messageText CHARACTER)
+    BEGIN
+        DECLARE ptrException REFERENCE TO InputTree;
+        -- Di chuyển đến node con cuối cùng của ExceptionList
+        WHILE LASTMOVE(ptrException) DO
+            -- Lưu lại Text của lỗi hiện tại nếu có
+            IF ptrException.Text IS NOT NULL THEN
+                SET messageText = ptrException.Text;
+            END IF;
+            
+            -- Thử tìm thông tin Insert (chi tiết lỗi DB thường nằm ở đây)
+            IF EXISTS(ptrException.Insert[]) THEN
+                 DECLARE ptrInsert REFERENCE TO ptrException.Insert[>];
+                 WHILE LASTMOVE(ptrInsert) DO
+                    SET messageText = messageText || ' - ' || ptrInsert.Text;
+                    MOVE ptrInsert NEXTSIBLING;
+                 END WHILE;
+            END IF;
+            
+            -- Đi sâu xuống lớp con tiếp theo (RecoverableException, DatabaseException...)
+            MOVE ptrException LASTCHILD;
+        END WHILE;
+    END;
+END MODULE;

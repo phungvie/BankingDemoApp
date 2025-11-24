@@ -1,0 +1,36 @@
+BROKER SCHEMA transfer
+
+CREATE COMPUTE MODULE AML_Check
+    CREATE FUNCTION Main() RETURNS BOOLEAN
+    BEGIN
+        SET OutputRoot = InputRoot;
+        DECLARE refIn REFERENCE TO InputRoot.JSON.Data;
+        DECLARE fromAcc CHARACTER refIn.fromAccount;
+        DECLARE toAcc CHARACTER refIn.toAccount;
+
+        -- Tối ưu: Kiểm tra cụ thể ai bị blacklist để trả lỗi chính xác
+        -- Dùng EXISTS nhanh hơn COUNT(*)
+        IF EXISTS(SELECT T.ACC_NO FROM Database.AML.AML_USER.BLACKLIST AS T WHERE T.ACC_NO = fromAcc) THEN
+            CALL CreateAmlError('Tài khoản nguồn nằm trong danh sách đen.');
+            RETURN FALSE;
+        END IF;
+
+        IF EXISTS(SELECT T.ACC_NO FROM Database.AML.AML_USER.BLACKLIST AS T WHERE T.ACC_NO = toAcc) THEN
+            CALL CreateAmlError('Tài khoản thụ hưởng nằm trong danh sách đen.');
+            RETURN FALSE;
+        END IF;
+
+        -- Nếu OK
+        PROPAGATE TO TERMINAL 'out';
+        RETURN FALSE;
+    END;
+
+    -- Hàm helper để set lỗi cho gọn code (tư duy Clean Code)
+    CREATE PROCEDURE CreateAmlError(IN errMsg CHARACTER)
+    BEGIN
+        SET Environment.Variables.ErrorType = 'BUSINESS';
+        SET Environment.Variables.ErrorCode = 'AML_BLOCK';
+        SET Environment.Variables.ErrorMessage = errMsg;
+        PROPAGATE TO TERMINAL 'out1';
+    END;
+END MODULE;
