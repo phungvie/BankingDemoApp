@@ -1,5 +1,5 @@
 BROKER SCHEMA transfer
-PATH common; -- Giữ nguyên dòng này để import, nhưng ta sẽ gọi tường minh bên dưới cho chắc chắn
+PATH common; -- Giữ nguyên dòng này cũng được, sau này muốn dùng lại constants thì tiện
 
 CREATE COMPUTE MODULE Validation
     CREATE FUNCTION Main() RETURNS BOOLEAN
@@ -24,22 +24,22 @@ CREATE COMPUTE MODULE Validation
 
         -- Check tồn tại người gửi
         IF NOT EXISTS(Environment.Temp.AccSender[]) THEN
-            -- SỬA: Thêm common. trước hằng số
-            CALL ThrowError(common.C_ERR_ACC_NOT_FOUND, 'Tài khoản nguồn không tồn tại.'); 
+            -- Trước đây là common.C_ERR_ACC_NOT_FOUND
+            CALL ThrowError('ACC_NOT_FOUND', 'Tài khoản nguồn không tồn tại.'); 
             RETURN FALSE;
         END IF;
 
         -- Check trạng thái người gửi
-        -- SỬA: Thêm common.
-        IF Environment.Temp.AccSender[1].STATUS <> common.C_ACC_ACTIVE THEN 
-            CALL ThrowError(common.C_ERR_ACC_LOCKED, 'Tài khoản nguồn đang bị khóa.');
+        -- Trước đây là so với common.C_ACC_ACTIVE
+        IF Environment.Temp.AccSender[1].STATUS <> 'ACTIVE' THEN 
+            CALL ThrowError('ACC_LOCKED', 'Tài khoản nguồn đang bị khóa.');
             RETURN FALSE;
         END IF;
 
         -- Check số dư
         IF Environment.Temp.AccSender[1].BALANCE < amount THEN
-            -- SỬA: Thêm common.
-            CALL ThrowError(common.C_ERR_INSUFFICIENT_FND, 'Số dư không đủ.');
+            -- Trước đây là common.C_ERR_INSUFFICIENT_FND
+            CALL ThrowError('INSUFFICIENT_FUND', 'Số dư không đủ.');
             RETURN FALSE;
         END IF;
 
@@ -53,32 +53,32 @@ CREATE COMPUTE MODULE Validation
 
         -- Check tồn tại người nhận
         IF dbStatusTo IS NULL THEN
-            -- SỬA: Thêm common.
-            CALL ThrowError(common.C_ERR_ACC_NOT_FOUND, 'Tài khoản thụ hưởng không tồn tại.');
+            -- Trước đây là common.C_ERR_ACC_NOT_FOUND
+            CALL ThrowError('ACC_NOT_FOUND', 'Tài khoản thụ hưởng không tồn tại.');
             RETURN FALSE;
         END IF;
 
         -- Check trạng thái người nhận
-        -- SỬA: Thêm common.
-        IF dbStatusTo <> common.C_ACC_ACTIVE THEN
-            CALL ThrowError(common.C_ERR_ACC_LOCKED, 'Tài khoản thụ hưởng đang bị khóa.');
+        -- Trước đây là so với common.C_ACC_ACTIVE
+        IF dbStatusTo <> 'ACTIVE' THEN
+            CALL ThrowError('ACC_LOCKED', 'Tài khoản thụ hưởng đang bị khóa.');
             RETURN FALSE;
         END IF;
 
         -- Nếu cả 2 đều OK -> Đi tiếp
-        -- SỬA: Thêm common.
-        PROPAGATE TO TERMINAL common.C_TERM_OUT;
+        -- Trước đây: PROPAGATE TO TERMINAL common.C_TERM_OUT;
+        PROPAGATE TO TERMINAL 'out';
         RETURN FALSE;
     END;
 
     -- Procedure con để throw lỗi
     CREATE PROCEDURE ThrowError(IN errCode CHARACTER, IN errMsg CHARACTER)
     BEGIN
-        -- SỬA: Thêm common.
-        SET Environment.Variables.ErrorType = common.C_ERR_TYPE_BIZ;
+        -- Trước đây: common.C_ERR_TYPE_BIZ
+        SET Environment.Variables.ErrorType = 'BUSINESS';
         SET Environment.Variables.ErrorCode = errCode;
         SET Environment.Variables.ErrorMessage = errMsg;
-        -- SỬA: Thêm common.
-        PROPAGATE TO TERMINAL common.C_TERM_OUT_ERR;
+        -- Trước đây: common.C_TERM_OUT_ERR
+        PROPAGATE TO TERMINAL 'out1';
     END;
 END MODULE;

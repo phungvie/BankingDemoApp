@@ -32,5 +32,7 @@ CREATE COMPUTE MODULE AML_Check
         SET Environment.Variables.ErrorCode = 'AML_BLOCK';
         SET Environment.Variables.ErrorMessage = errMsg;
         PROPAGATE TO TERMINAL 'out1';
+        
+        
     END;
 END MODULE;
